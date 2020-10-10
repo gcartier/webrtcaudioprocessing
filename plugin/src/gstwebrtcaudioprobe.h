@@ -3,6 +3,7 @@
  *
  *  Copyright 2016 Collabora Ltd
  *    @author: Nicolas Dufresne <nicolas.dufresne@collabora.com>
+ *  Copyright 2020
  *    @author: Guillaume Cartier <gucartier@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -21,8 +22,8 @@
  *
  */
 
-#ifndef __GST_WEBRTC_ECHO_PROBE_H__
-#define __GST_WEBRTC_ECHO_PROBE_H__
+#ifndef __GST_WEBRTC_AUDIO_PROBE_H__
+#define __GST_WEBRTC_AUDIO_PROBE_H__
 
 #include <gst/gst.h>
 #include <gst/base/gstadapter.h>
@@ -32,35 +33,34 @@
 #ifndef GST_USE_UNSTABLE_API
 #define GST_USE_UNSTABLE_API
 #endif
-#include <gst/audio/gstplanaraudioadapter.h>
 
 G_BEGIN_DECLS
 
-#define GST_TYPE_WEBRTC_ECHO_PROBE            (gst_webrtc_echo_probe_get_type())
-#define GST_WEBRTC_ECHO_PROBE(obj)            (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_WEBRTC_ECHO_PROBE,GstWebrtcEchoProbe))
-#define GST_IS_WEBRTC_ECHO_PROBE(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_WEBRTC_ECHO_PROBE))
-#define GST_WEBRTC_ECHO_PROBE_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass) ,GST_TYPE_WEBRTC_ECHO_PROBE,GstWebrtcEchoProbeClass))
-#define GST_IS_WEBRTC_ECHO_PROBE_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass) ,GST_TYPE_WEBRTC_ECHO_PROBE))
-#define GST_WEBRTC_ECHO_PROBE_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj) ,GST_TYPE_WEBRTC_ECHO_PROBE,GstWebrtcEchoProbeClass))
+#define GST_TYPE_WEBRTC_AUDIO_PROBE            (gst_webrtc_audio_probe_get_type())
+#define GST_WEBRTC_AUDIO_PROBE(obj)            (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_WEBRTC_AUDIO_PROBE,GstWebrtcAudioProbe))
+#define GST_IS_WEBRTC_AUDIO_PROBE(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_WEBRTC_AUDIO_PROBE))
+#define GST_WEBRTC_AUDIO_PROBE_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass) ,GST_TYPE_WEBRTC_AUDIO_PROBE,GstWebrtcAudioProbeClass))
+#define GST_IS_WEBRTC_AUDIO_PROBE_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass) ,GST_TYPE_WEBRTC_AUDIO_PROBE))
+#define GST_WEBRTC_AUDIO_PROBE_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj) ,GST_TYPE_WEBRTC_AUDIO_PROBE,GstWebrtcAudioProbeClass))
 
-#define GST_WEBRTC_ECHO_PROBE_LOCK(obj) g_mutex_lock (&GST_WEBRTC_ECHO_PROBE (obj)->lock)
-#define GST_WEBRTC_ECHO_PROBE_UNLOCK(obj) g_mutex_unlock (&GST_WEBRTC_ECHO_PROBE (obj)->lock)
+#define GST_WEBRTC_AUDIO_PROBE_LOCK(obj) g_mutex_lock (&GST_WEBRTC_AUDIO_PROBE (obj)->lock)
+#define GST_WEBRTC_AUDIO_PROBE_UNLOCK(obj) g_mutex_unlock (&GST_WEBRTC_AUDIO_PROBE (obj)->lock)
 
-typedef struct _GstWebrtcEchoProbe GstWebrtcEchoProbe;
-typedef struct _GstWebrtcEchoProbeClass GstWebrtcEchoProbeClass;
+typedef struct _GstWebrtcAudioProbe GstWebrtcAudioProbe;
+typedef struct _GstWebrtcAudioProbeClass GstWebrtcAudioProbeClass;
 
 /**
- * GstWebrtcEchoProbe:
+ * GstWebrtcAudioProbe:
  *
  * The adder object structure.
  */
-struct _GstWebrtcEchoProbe
+struct _GstWebrtcAudioProbe
 {
   GstAudioFilter parent;
 
-  /* This lock is required as the DSP may need to lock itself using it's
-   * object lock and also lock the probe. The natural order for the DSP is
-   * to lock the DSP and then the echo probe. If we where using the probe
+  /* This lock is required as the processor may need to lock itself using it's
+   * object lock and also lock the probe. The natural order for the processor is
+   * to lock the processor and then the audio probe. If we where using the probe
    * object lock, we'd be racing with GstBin which will lock sink to src,
    * and may accidentally reverse the order. */
   GMutex lock;
@@ -71,30 +71,27 @@ struct _GstWebrtcEchoProbe
   guint period_samples;
   GstClockTime latency;
   gint delay;
-  gboolean interleaved;
 
   gint explicit_latency;
   gint explicit_delay;
 
   GstSegment segment;
   GstAdapter *adapter;
-  GstPlanarAudioAdapter *padapter;
 
   /* Private */
   gboolean acquired;
 };
 
-struct _GstWebrtcEchoProbeClass
+struct _GstWebrtcAudioProbeClass
 {
   GstAudioFilterClass parent_class;
 };
 
-GType gst_webrtc_echo_probe_get_type (void);
+GType gst_webrtc_audio_probe_get_type (void);
 
-GstWebrtcEchoProbe *gst_webrtc_acquire_echo_probe (const gchar * name);
-void gst_webrtc_release_echo_probe (GstWebrtcEchoProbe * probe);
-gint gst_webrtc_echo_probe_read (GstWebrtcEchoProbe * self,
-    GstClockTime rec_time, gpointer frame, GstBuffer ** buf);
+GstWebrtcAudioProbe *gst_webrtc_acquire_audio_probe (const gchar * name);
+void gst_webrtc_release_audio_probe (GstWebrtcAudioProbe * probe);
+gint gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, GstClockTime rec_time, gint *, int16_t * data);
 
 G_END_DECLS
-#endif /* __GST_WEBRTC_ECHO_PROBE_H__ */
+#endif /* __GST_WEBRTC_AUDIO_PROBE_H__ */

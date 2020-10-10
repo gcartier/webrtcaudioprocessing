@@ -3,6 +3,7 @@
  *
  *  Copyright 2016 Collabora Ltd
  *    @author: Nicolas Dufresne <nicolas.dufresne@collabora.com>
+ *  Copyright 2020
  *    @author: Guillaume Cartier <gucartier@gmail.com>
  *
  * This library is free software; you can redistribute it and/or
@@ -21,8 +22,8 @@
  *
  */
 
-#ifndef __GST_WEBRTC_DSP_H__
-#define __GST_WEBRTC_DSP_H__
+#ifndef __GST_WEBRTC_AUDIO_PROCESSOR_H__
+#define __GST_WEBRTC_AUDIO_PROCESSOR_H__
 
 #include <gst/gst.h>
 #include <gst/base/gstadapter.h>
@@ -32,27 +33,26 @@
 #ifndef GST_USE_UNSTABLE_API
 #define GST_USE_UNSTABLE_API
 #endif
-#include <gst/audio/gstplanaraudioadapter.h>
 
 G_BEGIN_DECLS
 
-#define GST_TYPE_WEBRTC_DSP            (gst_webrtc_dsp_get_type())
-#define GST_WEBRTC_DSP(obj)            (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_WEBRTC_DSP,GstWebrtcDsp))
-#define GST_IS_WEBRTC_DSP(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_WEBRTC_DSP))
-#define GST_WEBRTC_DSP_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass) ,GST_TYPE_WEBRTC_DSP,GstWebrtcDspClass))
-#define GST_IS_WEBRTC_DSP_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass) ,GST_TYPE_WEBRTC_DSP))
-#define GST_WEBRTC_DSP_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj) ,GST_TYPE_WEBRTC_DSP,GstWebrtcDspClass))
+#define GST_TYPE_WEBRTC_AUDIO_PROCESSOR            (gst_webrtc_audio_processor_get_type())
+#define GST_WEBRTC_AUDIO_PROCESSOR(obj)            (G_TYPE_CHECK_INSTANCE_CAST((obj),GST_TYPE_WEBRTC_AUDIO_PROCESSOR,GstWebrtcAudioProcessor))
+#define GST_IS_WEBRTC_AUDIO_PROCESSOR(obj)         (G_TYPE_CHECK_INSTANCE_TYPE((obj),GST_TYPE_WEBRTC_AUDIO_PROCESSOR))
+#define GST_WEBRTC_AUDIO_PROCESSOR_CLASS(klass)    (G_TYPE_CHECK_CLASS_CAST((klass) ,GST_TYPE_WEBRTC_AUDIO_PROCESSOR,GstWebrtcAudioProcessorClass))
+#define GST_IS_WEBRTC_AUDIO_PROCESSOR_CLASS(klass) (G_TYPE_CHECK_CLASS_TYPE((klass) ,GST_TYPE_WEBRTC_AUDIO_PROCESSOR))
+#define GST_WEBRTC_AUDIO_PROCESSOR_GET_CLASS(obj)  (G_TYPE_INSTANCE_GET_CLASS((obj) ,GST_TYPE_WEBRTC_AUDIO_PROCESSOR,GstWebrtcAudioProcessorClass))
 
-typedef struct _GstWebrtcDsp GstWebrtcDsp;
-typedef struct _GstWebrtcDspClass GstWebrtcDspClass;
+typedef struct _GstWebrtcAudioProcessor GstWebrtcAudioProcessor;
+typedef struct _GstWebrtcAudioProcessorClass GstWebrtcAudioProcessorClass;
 
-struct _GstWebrtcDspClass
+struct _GstWebrtcAudioProcessorClass
 {
   GstAudioFilterClass parent_class;
 };
 
-GType gst_webrtc_dsp_get_type (void);
+GType gst_webrtc_audio_processor_get_type (void);
 
 G_END_DECLS
 
-#endif /* __GST_WEBRTC_DSP_H__ */
+#endif /* __GST_WEBRTC_AUDIO_PROCESSOR_H__ */
