@@ -1,0 +1,11 @@
+webrtcdir=/c/Home/gstreamer/msvc/webrtc
+builddir=${webrtcdir}/x64/Release
+
+lib=-L${builddir} -lwebrtc
+include=
+
+Name: webrtc
+Description: WebRTC library
+Version: 0.1
+Libs: ${lib}
+Cflags: ${include}

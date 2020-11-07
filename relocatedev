@@ -1,0 +1,3 @@
+install_name_tool -change @rpath/libgstreamer-1.0.0.dylib /Users/cartier/Devel/gstreamer/gst-build/build/subprojects/gstreamer/gst/libgstreamer-1.0.0.dylib builddev/plugin/libgstwebrtcaudioprocessing.dylib
+install_name_tool -change @rpath/libgstaudio-1.0.0.dylib /Users/cartier/Devel/gstreamer/gst-build/build/subprojects/gst-plugins-base/gst-libs/gst/audio/libgstaudio-1.0.0.dylib builddev/plugin/libgstwebrtcaudioprocessing.dylib
+install_name_tool -change @rpath/libgstbase-1.0.0.dylib /Users/cartier/Devel/gstreamer/gst-build/build/subprojects/gstreamer/libs/gst/base/libgstbase-1.0.0.dylib builddev/plugin/libgstwebrtcaudioprocessing.dylib

@@ -25,6 +25,10 @@
 #ifndef __GST_WEBRTC_AUDIO_PROBE_H__
 #define __GST_WEBRTC_AUDIO_PROBE_H__
 
+#ifdef _WIN32
+#include <stdint.h>
+#endif
+
 #include <gst/gst.h>
 #include <gst/base/gstadapter.h>
 #include <gst/base/gstbasetransform.h>

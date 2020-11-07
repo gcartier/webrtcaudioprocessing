@@ -25,6 +25,10 @@
 #ifndef __GST_WEBRTC_AUDIO_PROCESSOR_H__
 #define __GST_WEBRTC_AUDIO_PROCESSOR_H__
 
+#ifdef _WIN32
+#include <stdint.h>
+#endif
+
 #include <gst/gst.h>
 #include <gst/base/gstadapter.h>
 #include <gst/base/gstbasetransform.h>
@@ -52,6 +56,9 @@ struct _GstWebrtcAudioProcessorClass
 };
 
 GType gst_webrtc_audio_processor_get_type (void);
+
+extern
+void gst_webrtc_audio_processor_set_probe();
 
 G_END_DECLS
 

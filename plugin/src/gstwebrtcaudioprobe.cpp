@@ -33,11 +33,9 @@
 #include "config.h"
 #endif
 
-#include "gstwebrtcaudioprobe.h"
+#include "gst/webrtcaudioprocessing/gstwebrtcaudioprobe.h"
 
-#include <api/audio/audio_frame.h>
-#include <modules/include/module_common_types.h>
-#include <gst/audio/audio.h>
+#define kMaxDataSizeSamples 7680
 
 GST_DEBUG_CATEGORY_EXTERN (webrtc_audio_processor_debug);
 #define GST_CAT_DEFAULT (webrtc_audio_processor_debug)
@@ -98,7 +96,7 @@ gst_webrtc_audio_probe_setup (GstAudioFilter * filter, const GstAudioInfo * info
   self->period_samples = info->rate / 100;
   self->period_size = self->period_samples * info->bpf;
 
-  if ((webrtc::AudioFrame::kMaxDataSizeSamples * 2) < self->period_size)
+  if ((kMaxDataSizeSamples * 2) < self->period_size)
     goto period_too_big;
 
   GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
@@ -108,9 +106,9 @@ gst_webrtc_audio_probe_setup (GstAudioFilter * filter, const GstAudioInfo * info
 period_too_big:
   GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
   GST_WARNING_OBJECT (self, "webrtcaudioprocessor format produce too big period "
-      "(maximum is %" G_GSIZE_FORMAT " samples and we have %u samples), "
+      "(maximum is %d samples and we have %u samples), "
       "reduce the number of channels or the rate.",
-      webrtc::AudioFrame::kMaxDataSizeSamples, self->period_size / 2);
+      kMaxDataSizeSamples, self->period_size / 2);
   return FALSE;
 }
 
@@ -150,8 +148,8 @@ gst_webrtc_audio_probe_src_event (GstBaseTransform * btrans, GstEvent * event)
       }
 
       GST_WEBRTC_AUDIO_PROBE_LOCK (self);
-      self->latency = (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : latency;
-      self->delay = (self->explicit_delay != -1) ? self->explicit_delay : (upstream_latency / GST_MSECOND);
+      self->latency = 320000000; // (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : latency;
+      self->delay = 0; // (self->explicit_delay != -1) ? self->explicit_delay : (upstream_latency / GST_MSECOND);
       GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
       
       GST_DEBUG_OBJECT (self, "***Estimated*** latency of %" GST_TIME_FORMAT
@@ -260,6 +258,8 @@ gst_webrtc_audio_probe_init (GstWebrtcAudioProbe * self)
   g_mutex_init (&self->lock);
 
   self->latency = GST_CLOCK_TIME_NONE;
+      self->latency = 320000000; // (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : latency;
+      self->delay = 0; // (self->explicit_delay != -1) ? self->explicit_delay : (upstream_latency / GST_MSECOND);
 
   G_LOCK (gst_aec_probes);
   gst_aec_probes = g_list_prepend (gst_aec_probes, self);
