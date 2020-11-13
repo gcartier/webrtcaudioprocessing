@@ -1,4 +1,4 @@
-webrtcdir=/c/Home/gstreamer/msvc/webrtc
+webrtcdir=/c/Home/gstreamer/webrtc
 builddir=${webrtcdir}/x64/Release
 
 lib=-L${builddir} -lwebrtc
