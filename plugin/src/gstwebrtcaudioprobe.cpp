@@ -148,8 +148,8 @@ gst_webrtc_audio_probe_src_event (GstBaseTransform * btrans, GstEvent * event)
       }
 
       GST_WEBRTC_AUDIO_PROBE_LOCK (self);
-      self->latency = 320000000; // (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : latency;
-      self->delay = 0; // (self->explicit_delay != -1) ? self->explicit_delay : (upstream_latency / GST_MSECOND);
+      self->latency = (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : latency;
+      self->delay = (self->explicit_delay != -1) ? self->explicit_delay : (upstream_latency / GST_MSECOND);
       GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
       
       GST_DEBUG_OBJECT (self, "***Estimated*** latency of %" GST_TIME_FORMAT
