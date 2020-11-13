@@ -568,7 +568,7 @@ gst_webrtc_audio_processor_start (GstBaseTransform * btrans)
 #else
   gint err = 0;
   GST_OBJECT_LOCK (self);
-  err = ap_setup(32000, true, true, self->noise_suppression_level, self->logging_severity);
+  err = ap_setup(self->processing_rate, true, true, self->noise_suppression_level, self->logging_severity);
 #endif
 
   if (err < 0)
