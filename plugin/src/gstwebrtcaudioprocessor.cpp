@@ -83,12 +83,16 @@
 
 // should go in a webrtc.h
 #define kMaxDataSizeSamples 7680
+#define NSL_LOW 0
+#define NSL_MODERATE 1
+#define NSL_HIGH 2
+#define NSL_VERYHIGH 3
 #define LS_NONE 0
 #define LS_ERROR 1
 #define LS_WARNING 2
 #define LS_INFO 3
 #define LS_VERBOSE 4
-extern "C" SHARED_PUBLIC int  ap_setup(int, bool, bool, int);
+extern "C" SHARED_PUBLIC int  ap_setup(int, bool, bool, int, int);
 extern "C" SHARED_PUBLIC void ap_delete();
 extern "C" SHARED_PUBLIC void ap_delay(int);
 extern "C" SHARED_PUBLIC int  ap_process_reverse(int, int, int16_t*);
@@ -153,8 +157,7 @@ gst_webrtc_logging_severity_get_type (void)
   return logging_severity_type;
 }
 
-#ifdef _WAIT
-typedef webrtc::AudioProcessing::Config::NoiseSuppression::Level GstWebrtcAudioProcessingNoiseSuppressionLevel;
+typedef int GstWebrtcAudioProcessingNoiseSuppressionLevel;
 #define GST_TYPE_WEBRTC_NOISE_SUPPRESSION_LEVEL \
     (gst_webrtc_noise_suppression_level_get_type ())
 static GType
@@ -162,10 +165,10 @@ gst_webrtc_noise_suppression_level_get_type (void)
 {
   static GType suppression_level_type = 0;
   static const GEnumValue level_types[] = {
-    {webrtc::AudioProcessing::Config::NoiseSuppression::kLow, "Low Suppression", "low"},
-    {webrtc::AudioProcessing::Config::NoiseSuppression::kModerate, "Moderate Suppression", "moderate"},
-    {webrtc::AudioProcessing::Config::NoiseSuppression::kHigh, "High Suppression", "high"},
-    {webrtc::AudioProcessing::Config::NoiseSuppression::kVeryHigh, "Very High Suppression", "very-high"},
+    {NSL_LOW, "Low Suppression", "low"},
+    {NSL_MODERATE, "Moderate Suppression", "moderate"},
+    {NSL_HIGH, "High Suppression", "high"},
+    {NSL_VERYHIGH, "Very High Suppression", "very-high"},
     {0, NULL, NULL}
   };
 
@@ -176,6 +179,7 @@ gst_webrtc_noise_suppression_level_get_type (void)
   return suppression_level_type;
 }
 
+#ifdef _WAIT
 typedef webrtc::AudioProcessing::Config::GainController1::Mode GstWebrtcAudioProcessingGainControlMode;
 #define GST_TYPE_WEBRTC_GAIN_CONTROL_MODE \
     (gst_webrtc_gain_control_mode_get_type ())
@@ -245,9 +249,7 @@ struct _GstWebrtcAudioProcessor
   gboolean high_pass_filter;
   gboolean echo_cancel;
   gboolean noise_suppression;
-#ifdef _WAIT
-  webrtc::AudioProcessing::Config::NoiseSuppression::Level noise_suppression_level;
-#endif
+  int noise_suppression_level;
   gboolean gain_control;
   gint target_level_dbfs;
   gint compression_gain_db;
@@ -566,7 +568,7 @@ gst_webrtc_audio_processor_start (GstBaseTransform * btrans)
 #else
   gint err = 0;
   GST_OBJECT_LOCK (self);
-  err = ap_setup(32000, true, true, self->logging_severity);
+  err = ap_setup(32000, true, true, self->noise_suppression_level, self->logging_severity);
 #endif
 
   if (err < 0)
@@ -737,12 +739,10 @@ gst_webrtc_audio_processor_set_property (GObject * object,
     case PROP_NOISE_SUPPRESSION:
       self->noise_suppression = g_value_get_boolean (value);
       break;
-#ifdef _WAIT
     case PROP_NOISE_SUPPRESSION_LEVEL:
       self->noise_suppression_level =
           (GstWebrtcAudioProcessingNoiseSuppressionLevel) g_value_get_enum (value);
       break;
-#endif
     case PROP_GAIN_CONTROL:
       self->gain_control = g_value_get_boolean (value);
       break;
@@ -803,11 +803,9 @@ gst_webrtc_audio_processor_get_property (GObject * object,
     case PROP_NOISE_SUPPRESSION:
       g_value_set_boolean (value, self->noise_suppression);
       break;
-#ifdef _WAIT
     case PROP_NOISE_SUPPRESSION_LEVEL:
       g_value_set_enum (value, self->noise_suppression_level);
       break;
-#endif
     case PROP_GAIN_CONTROL:
       g_value_set_boolean (value, self->gain_control);
       break;
@@ -937,17 +935,15 @@ gst_webrtc_audio_processor_class_init (GstWebrtcAudioProcessorClass * klass)
           (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
               G_PARAM_CONSTRUCT)));
 
-#ifdef _WAIT
   g_object_class_install_property (gobject_class,
       PROP_NOISE_SUPPRESSION_LEVEL,
       g_param_spec_enum ("noise-suppression-level", "Noise Suppression Level",
           "Controls the aggressiveness of the suppression. Increasing the "
           "level will reduce the noise level at the expense of a higher "
           "speech distortion.", GST_TYPE_WEBRTC_NOISE_SUPPRESSION_LEVEL,
-          webrtc::AudioProcessing::Config::NoiseSuppression::kModerate,
+          NSL_MODERATE,
           (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
               G_PARAM_CONSTRUCT)));
-#endif
 
   g_object_class_install_property (gobject_class,
       PROP_GAIN_CONTROL,
