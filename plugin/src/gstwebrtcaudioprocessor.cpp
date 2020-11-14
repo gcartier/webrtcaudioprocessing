@@ -371,7 +371,8 @@ gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * sel
     return GST_FLOW_OK;
 
   delay = gst_webrtc_audio_probe_read (probe, rec_time, &probe_rate, data);
-  ap_delay(delay);
+// try not calling as we are not really passing anything meaningfull
+// ap_delay(delay);
 
   if (delay < 0)
     goto done;
