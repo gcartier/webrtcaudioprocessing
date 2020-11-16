@@ -257,9 +257,8 @@ gst_webrtc_audio_probe_init (GstWebrtcAudioProbe * self)
   gst_audio_info_init (&self->info);
   g_mutex_init (&self->lock);
 
-  self->latency = GST_CLOCK_TIME_NONE;
-      self->latency = (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : 0;
-      self->delay = (self->explicit_delay != -1) ? self->explicit_delay : 0;
+  self->latency = (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : 0;
+  self->delay = (self->explicit_delay != -1) ? self->explicit_delay : 0;
 
   G_LOCK (gst_aec_probes);
   gst_aec_probes = g_list_prepend (gst_aec_probes, self);

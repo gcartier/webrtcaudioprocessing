@@ -374,9 +374,6 @@ gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * sel
 // try not calling as we are not really passing anything meaningfull
 // ap_delay(delay);
 
-  if (delay < 0)
-    goto done;
-
   if (probe_rate != self->info.rate) {
     GST_ELEMENT_ERROR (self, STREAM, FORMAT,
         ("Audio probe has rate %i , while the processor is running at rate %i,"
