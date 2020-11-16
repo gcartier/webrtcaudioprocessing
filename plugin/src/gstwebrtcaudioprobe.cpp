@@ -156,7 +156,7 @@ gst_webrtc_audio_probe_src_event (GstBaseTransform * btrans, GstEvent * event)
           " and delay of %ims", GST_TIME_ARGS (latency),
           (gint) (upstream_latency / GST_MSECOND));
 
-      GST_DEBUG_OBJECT (self, "We have a latency of %" GST_TIME_FORMAT
+      GST_DEBUG_OBJECT (self, "Using a latency of %" GST_TIME_FORMAT
           " and delay of %ims", GST_TIME_ARGS (self->latency),
           self->delay);
       break;
