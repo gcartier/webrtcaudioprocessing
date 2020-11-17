@@ -33,6 +33,8 @@
 #include "config.h"
 #endif
 
+#include <stdio.h>
+
 #include "gst/webrtcaudioprocessing/gstwebrtcaudioprobe.h"
 
 #define kMaxDataSizeSamples 7680
@@ -183,8 +185,7 @@ gst_webrtc_audio_probe_transform_ip (GstBaseTransform * btrans,
   gst_adapter_push (self->adapter, newbuf);
 
   if (gst_adapter_available (self->adapter) > MAX_ADAPTER_SIZE)
-    gst_adapter_flush (self->adapter,
-        gst_adapter_available (self->adapter) - MAX_ADAPTER_SIZE);
+    gst_adapter_flush (self->adapter, gst_adapter_available (self->adapter) - MAX_ADAPTER_SIZE);
 
   GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
 

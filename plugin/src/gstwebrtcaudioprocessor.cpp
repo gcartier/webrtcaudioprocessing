@@ -372,7 +372,7 @@ gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * sel
 
   delay = gst_webrtc_audio_probe_read (probe, rec_time, &probe_rate, data);
 // try not calling as we are not really passing anything meaningfull
-// ap_delay(delay);
+  ap_delay(delay);
 
   if (probe_rate != self->info.rate) {
     GST_ELEMENT_ERROR (self, STREAM, FORMAT,
@@ -613,7 +613,7 @@ gst_webrtc_audio_processor_setup (GstAudioFilter * filter, const GstAudioInfo * 
 
   self->info = *info;
 
-  /* WebRTC library works with 10ms buffers, compute once this size */
+  /* WebRTC works with 10ms (.01s) buffers, compute period_size once */
   self->period_samples = info->rate / 100;
   self->period_size = self->period_samples * info->bpf;
 
