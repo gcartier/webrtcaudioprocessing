@@ -351,31 +351,19 @@ gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, GstClockTime rec_time, 
 
   GST_WEBRTC_AUDIO_PROBE_LOCK (self);
 
-  if (!GST_CLOCK_TIME_IS_VALID (self->latency) ||
-      !GST_AUDIO_INFO_IS_VALID (&self->info))
-    goto done;
-
   avail = gst_adapter_available (self->adapter) / self->info.bpf;
+  printf("222 %lu\n", gst_adapter_available (self->adapter));
 
-  if (avail == 0) {
-    diff = G_MAXINT64;
-  } else {
-    GstClockTime play_time;
-    guint64 distance;
+  GstClockTime play_time;
+  guint64 distance;
 
-    play_time = gst_adapter_prev_pts (self->adapter, &distance);
-    distance /= self->info.bpf;
+  play_time = gst_adapter_prev_pts (self->adapter, &distance);
+  distance /= self->info.bpf;
 
-    if (GST_CLOCK_TIME_IS_VALID (play_time)) {
-      play_time += gst_util_uint64_scale_int (distance, GST_SECOND, self->info.rate);
-      play_time += self->latency;
+  play_time += gst_util_uint64_scale_int (distance, GST_SECOND, self->info.rate);
+  play_time += self->latency;
 
-      diff = GST_CLOCK_DIFF (rec_time, play_time) / GST_MSECOND;
-    } else {
-      /* We have no timestamp, assume perfect delay */
-      diff = self->delay;
-    }
-  }
+  diff = GST_CLOCK_DIFF (rec_time, play_time) / GST_MSECOND;
 
   if (diff > self->delay) {
     skip = (diff - self->delay) * self->info.rate / 1000;
@@ -405,7 +393,6 @@ gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, GstClockTime rec_time, 
 
   delay = self->delay;
 
-done:
   GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
 
   return delay;
