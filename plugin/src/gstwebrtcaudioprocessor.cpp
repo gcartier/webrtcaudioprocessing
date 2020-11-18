@@ -378,7 +378,6 @@ gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * sel
   GST_OBJECT_LOCK (self);
   if (self->echo_cancel)
     probe = GST_WEBRTC_AUDIO_PROBE (g_object_ref (self->probe));
-  GST_OBJECT_UNLOCK (self);
 
   /* If echo cancellation is disabled */
   if (!probe)
@@ -396,6 +395,8 @@ gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * sel
   while (buffer);
 
   gst_object_unref (probe);
+  
+  GST_OBJECT_UNLOCK (self);
 
   return ret;
 }

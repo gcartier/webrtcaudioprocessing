@@ -373,14 +373,11 @@ gst_webrtc_audio_probe_take_buffer (GstWebrtcAudioProbe * self)
 GstBuffer*
 gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, guint * delay)
 {
-  gboolean not_enough;
   GstBuffer* buffer;
   
   GST_WEBRTC_AUDIO_PROBE_LOCK (self);
-
-  not_enough = gst_adapter_available (self->adapter) < self->period_size;
   
-  if (not_enough)
+  if (gst_adapter_available (self->adapter) < self->period_size)
     buffer = NULL;
   else
   {
