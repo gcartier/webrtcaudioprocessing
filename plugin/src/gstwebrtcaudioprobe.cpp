@@ -352,7 +352,6 @@ gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, GstClockTime rec_time, 
   GST_WEBRTC_AUDIO_PROBE_LOCK (self);
 
   avail = gst_adapter_available (self->adapter) / self->info.bpf;
-  printf("222 %lu\n", gst_adapter_available (self->adapter));
 
   GstClockTime play_time;
   guint64 distance;
@@ -385,9 +384,12 @@ gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, GstClockTime rec_time, 
     memset (data, 0, self->period_size);
 
   if (size) {
+  printf("111 %lu %lu %lu\n", skip, offset, size);
     gst_adapter_copy (self->adapter, (guint8 *) data + skip, offset, size);
     gst_adapter_flush (self->adapter, offset + size);
   }
+  else
+  printf("NOSIZE\n");
     
   *rate = self->info.rate;
 

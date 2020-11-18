@@ -503,7 +503,6 @@ gst_webrtc_audio_processor_generate_output (GstBaseTransform * btrans, GstBuffer
 extern
 void gst_webrtc_audio_processor_set_probe ()
 {
-  // printf("SET PROBE\n");
 }
 
 static gboolean
