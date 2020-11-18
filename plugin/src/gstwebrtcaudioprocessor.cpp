@@ -351,15 +351,29 @@ gst_webrtc_audio_processor_take_buffer (GstWebrtcAudioProcessor * self)
   return buffer;
 }
 
+static void blabla_reverse(GstWebrtcAudioProcessor * self, GstBuffer* buffer)
+{
+  GstAudioBuffer abuf;
+  gint err;
+  gst_audio_buffer_map (&abuf, &self->info, buffer, (GstMapFlags) GST_MAP_READWRITE);
+
+  int16_t * const data = (int16_t * const) abuf.planes[0];
+  
+  err = ap_process_reverse(self->info.rate, self->info.channels, data);
+
+  if (err < 0)
+    GST_WARNING_OBJECT (self, "Reverse stream analyses failed: %s.",
+        webrtc_error_to_string (err));
+
+  gst_audio_buffer_unmap (&abuf);
+}
+
 static GstFlowReturn
-gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * self,
-    GstClockTime rec_time)
+gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * self)
 {
   GstWebrtcAudioProbe *probe = NULL;
-  int16_t data[kMaxDataSizeSamples];
   GstFlowReturn ret = GST_FLOW_OK;
-  gint probe_rate;
-  gint err, delay;
+  guint delay;
 
   GST_OBJECT_LOCK (self);
   if (self->echo_cancel)
@@ -369,26 +383,18 @@ gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * sel
   /* If echo cancellation is disabled */
   if (!probe)
     return GST_FLOW_OK;
+  
+  GstBuffer* buffer;
 
-  delay = gst_webrtc_audio_probe_read (probe, rec_time, &probe_rate, data);
-// try not calling as we are not really passing anything meaningfull
-  ap_delay(delay);
-
-  if (probe_rate != self->info.rate) {
-    GST_ELEMENT_ERROR (self, STREAM, FORMAT,
-        ("Audio probe has rate %i , while the processor is running at rate %i,"
-         " use a caps filter to ensure those are the same.",
-         probe_rate, self->info.rate), (NULL));
-    ret = GST_FLOW_ERROR;
-    goto done;
+  do {
+    buffer = gst_webrtc_audio_probe_read (probe, &delay);
+    if (buffer) {
+      ap_delay(delay);
+      blabla_reverse(self, buffer);
+    }
   }
+  while (buffer);
 
-  err = ap_process_reverse(self->info.rate, self->info.channels, data);
-  if (err < 0)
-    GST_WARNING_OBJECT (self, "Reverse stream analyses failed: %s.",
-        webrtc_error_to_string (err));
-
-done:
   gst_object_unref (probe);
 
   return ret;
@@ -492,7 +498,7 @@ gst_webrtc_audio_processor_generate_output (GstBaseTransform * btrans, GstBuffer
   }
 
   *outbuf = gst_webrtc_audio_processor_take_buffer (self);
-  ret = gst_webrtc_audio_processor_analyze_reverse_stream (self, GST_BUFFER_PTS (*outbuf));
+  ret = gst_webrtc_audio_processor_analyze_reverse_stream (self);
 
   if (ret == GST_FLOW_OK)
     ret = gst_webrtc_audio_processor_process_stream (self, *outbuf);

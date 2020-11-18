@@ -342,60 +342,53 @@ gst_webrtc_release_audio_probe (GstWebrtcAudioProbe * probe)
   gst_object_unref (probe);
 }
 
-gint
-gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, GstClockTime rec_time, gint * rate, int16_t * data)
+static GstBuffer *
+gst_webrtc_audio_probe_take_buffer (GstWebrtcAudioProbe * self)
 {
-  GstClockTimeDiff diff;
-  gsize avail, skip, offset, size;
-  gint delay = -1;
-
-  GST_WEBRTC_AUDIO_PROBE_LOCK (self);
-
-  avail = gst_adapter_available (self->adapter) / self->info.bpf;
-
-  GstClockTime play_time;
+  GstBuffer *buffer;
+  GstClockTime timestamp;
   guint64 distance;
+  gboolean at_discont;
 
-  play_time = gst_adapter_prev_pts (self->adapter, &distance);
+  timestamp = gst_adapter_prev_pts (self->adapter, &distance);
   distance /= self->info.bpf;
 
-  play_time += gst_util_uint64_scale_int (distance, GST_SECOND, self->info.rate);
-  play_time += self->latency;
+  timestamp += gst_util_uint64_scale_int (distance, GST_SECOND, self->info.rate);
 
-  diff = GST_CLOCK_DIFF (rec_time, play_time) / GST_MSECOND;
+  buffer = gst_adapter_take_buffer (self->adapter, self->period_size);
+  at_discont = (gst_adapter_pts_at_discont (self->adapter) == timestamp);
 
-  if (diff > self->delay) {
-    skip = (diff - self->delay) * self->info.rate / 1000;
-    skip = MIN (self->period_samples, skip);
-    offset = 0;
+  GST_BUFFER_PTS (buffer) = timestamp;
+  GST_BUFFER_DURATION (buffer) = 10 * GST_MSECOND;
+
+  if (at_discont && distance == 0) {
+    GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_DISCONT);
   } else {
-    skip = 0;
-    offset = (self->delay - diff) * self->info.rate / 1000;
-    offset = MIN (avail, offset);
+    GST_BUFFER_FLAG_UNSET (buffer, GST_BUFFER_FLAG_DISCONT);
   }
 
-  size = MIN (avail - offset, self->period_samples - skip);
+  return buffer;
+}
 
-  skip *= self->info.bpf;
-  offset *= self->info.bpf;
-  size *= self->info.bpf;
+GstBuffer*
+gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, guint * delay)
+{
+  gboolean not_enough;
+  GstBuffer* buffer;
+  
+  GST_WEBRTC_AUDIO_PROBE_LOCK (self);
 
-  if (size < self->period_size)
-    memset (data, 0, self->period_size);
-
-  if (size) {
-  printf("111 %lu %lu %lu\n", skip, offset, size);
-    gst_adapter_copy (self->adapter, (guint8 *) data + skip, offset, size);
-    gst_adapter_flush (self->adapter, offset + size);
-  }
+  not_enough = gst_adapter_available (self->adapter) < self->period_size;
+  
+  if (not_enough)
+    buffer = NULL;
   else
-  printf("NOSIZE\n");
-    
-  *rate = self->info.rate;
-
-  delay = self->delay;
+  {
+    buffer = gst_webrtc_audio_probe_take_buffer (self);
+    * delay = self->delay;
+  }
 
   GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
 
-  return delay;
+  return buffer;
 }

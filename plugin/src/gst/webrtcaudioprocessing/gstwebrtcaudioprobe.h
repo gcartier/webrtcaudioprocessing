@@ -95,7 +95,7 @@ GType gst_webrtc_audio_probe_get_type (void);
 
 GstWebrtcAudioProbe *gst_webrtc_acquire_audio_probe (const gchar * name);
 void gst_webrtc_release_audio_probe (GstWebrtcAudioProbe * probe);
-gint gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, GstClockTime rec_time, gint *, int16_t * data);
+GstBuffer* gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, guint * delay);
 
 G_END_DECLS
 #endif /* __GST_WEBRTC_AUDIO_PROBE_H__ */
