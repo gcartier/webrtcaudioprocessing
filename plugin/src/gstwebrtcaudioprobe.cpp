@@ -35,14 +35,26 @@
 
 #include "gst/webrtcaudioprocessing/gstwebrtcaudioprobe.h"
 
+#ifdef _WIN32
+  #define SHARED_PUBLIC __declspec(dllimport)
+#else
+  #define SHARED_PUBLIC __attribute__ ((visibility ("default")))
+#endif
+
+// should go in a webrtc.h
 #define kMaxDataSizeSamples 7680
+extern "C" SHARED_PUBLIC const char* ap_error(int);
+extern "C" SHARED_PUBLIC void ap_setup(int, bool, bool, int, int);
+extern "C" SHARED_PUBLIC void ap_delete();
+extern "C" SHARED_PUBLIC void ap_delay(int);
+extern "C" SHARED_PUBLIC int ap_process_reverse(int, int, int16_t*);
+extern "C" SHARED_PUBLIC int ap_process(int, int, int16_t*);
 
 GST_DEBUG_CATEGORY_EXTERN (webrtc_audio_processor_debug);
 #define GST_CAT_DEFAULT (webrtc_audio_processor_debug)
 
 #define MAX_ADAPTER_SIZE (1*1024*1024)
 
-#define DEFAULT_EXPLICIT_LATENCY -1
 #define DEFAULT_EXPLICIT_DELAY -1
 
 static GstStaticPadTemplate gst_webrtc_audio_probe_sink_template =
@@ -67,16 +79,12 @@ GST_STATIC_PAD_TEMPLATE ("src",
         "channels = (int) [1, MAX]")
     );
 
-G_LOCK_DEFINE_STATIC (gst_aec_probes);
-static GList *gst_aec_probes = NULL;
-
 G_DEFINE_TYPE (GstWebrtcAudioProbe, gst_webrtc_audio_probe,
     GST_TYPE_AUDIO_FILTER);
 
 enum
 {
   PROP_0,
-  PROP_EXPLICIT_LATENCY,
   PROP_EXPLICIT_DELAY,
 };
 
@@ -92,24 +100,13 @@ gst_webrtc_audio_probe_setup (GstAudioFilter * filter, const GstAudioInfo * info
 
   self->info = *info;
 
-  /* WebRTC library works with 10ms buffers, compute once this size */
+  /* WebRTC works with 10ms (.01s) buffers, compute period_size once */
   self->period_samples = info->rate / 100;
   self->period_size = self->period_samples * info->bpf;
-
-  if ((kMaxDataSizeSamples * 2) < self->period_size)
-    goto period_too_big;
 
   GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
 
   return TRUE;
-
-period_too_big:
-  GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
-  GST_WARNING_OBJECT (self, "webrtcaudioprocessor format produce too big period "
-      "(maximum is %d samples and we have %u samples), "
-      "reduce the number of channels or the rate.",
-      kMaxDataSizeSamples, self->period_size / 2);
-  return FALSE;
 }
 
 static gboolean
@@ -129,36 +126,20 @@ gst_webrtc_audio_probe_src_event (GstBaseTransform * btrans, GstEvent * event)
 {
   GstBaseTransformClass *klass;
   GstWebrtcAudioProbe *self = GST_WEBRTC_AUDIO_PROBE (btrans);
-  GstClockTime latency;
-  GstClockTime upstream_latency = 0;
-  GstQuery *query;
+  GstClockTime delay;
 
   klass = GST_BASE_TRANSFORM_CLASS (gst_webrtc_audio_probe_parent_class);
 
   switch (GST_EVENT_TYPE (event)) {
     case GST_EVENT_LATENCY:
-      gst_event_parse_latency (event, &latency);
-      query = gst_query_new_latency ();
-
-      if (gst_pad_query (btrans->srcpad, query)) {
-        gst_query_parse_latency (query, NULL, &upstream_latency, NULL);
-
-        if (!GST_CLOCK_TIME_IS_VALID (upstream_latency))
-          upstream_latency = 0;
-      }
+      gst_event_parse_latency (event, &delay);
 
       GST_WEBRTC_AUDIO_PROBE_LOCK (self);
-      self->latency = (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : latency;
-      self->delay = (self->explicit_delay != -1) ? self->explicit_delay : (upstream_latency / GST_MSECOND);
+      self->delay = (self->explicit_delay != -1) ? self->explicit_delay : (delay / GST_MSECOND);
       GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
       
-      GST_DEBUG_OBJECT (self, "***Estimated*** latency of %" GST_TIME_FORMAT
-          " and delay of %ims", GST_TIME_ARGS (latency),
-          (gint) (upstream_latency / GST_MSECOND));
-
-      GST_DEBUG_OBJECT (self, "Using a latency of %" GST_TIME_FORMAT
-          " and delay of %ims", GST_TIME_ARGS (self->latency),
-          self->delay);
+      GST_DEBUG_OBJECT (self, "***Estimated*** delay of %" GST_TIME_FORMAT, GST_TIME_ARGS (delay));
+      GST_DEBUG_OBJECT (self, "Using a delay of %ims", self->delay);
       break;
     default:
       break;
@@ -167,28 +148,73 @@ gst_webrtc_audio_probe_src_event (GstBaseTransform * btrans, GstEvent * event)
   return klass->src_event (btrans, event);
 }
 
+static void process_reverse(GstWebrtcAudioProbe * self, GstBuffer* buffer)
+{
+  GstAudioBuffer abuf;
+  gst_audio_buffer_map (&abuf, &self->info, buffer, (GstMapFlags) GST_MAP_READWRITE);
+
+  int16_t * const data = (int16_t * const) abuf.planes[0];
+  int err;
+  
+  err = ap_process_reverse(self->info.rate, self->info.channels, data);
+
+  if (err < 0)
+    GST_WARNING_OBJECT (self, "Failed to reverse process audio: %s.",
+        ap_error (err));
+
+  gst_audio_buffer_unmap (&abuf);
+}
+
 static GstFlowReturn
 gst_webrtc_audio_probe_transform_ip (GstBaseTransform * btrans,
     GstBuffer * buffer)
 {
   GstWebrtcAudioProbe *self = GST_WEBRTC_AUDIO_PROBE (btrans);
-  GstBuffer *newbuf = NULL;
 
   GST_WEBRTC_AUDIO_PROBE_LOCK (self);
-  newbuf = gst_buffer_copy (buffer);
-  /* Moves the buffer timestamp to be in Running time */
-  GST_BUFFER_PTS (newbuf) = gst_segment_to_running_time (&btrans->segment,
-      GST_FORMAT_TIME, GST_BUFFER_PTS (buffer));
 
-  gst_adapter_push (self->adapter, newbuf);
+  gst_adapter_push (self->adapter, buffer);
 
   if (gst_adapter_available (self->adapter) > MAX_ADAPTER_SIZE)
-    gst_adapter_flush (self->adapter,
-        gst_adapter_available (self->adapter) - MAX_ADAPTER_SIZE);
+    gst_adapter_flush (self->adapter, gst_adapter_available (self->adapter) - MAX_ADAPTER_SIZE);
+
+  GstBuffer* buf;
+
+  do {
+    if (gst_adapter_available (self->adapter) < self->period_size)
+      buf = NULL;
+    else
+    {
+      buf = gst_adapter_take_buffer (self->adapter, self->period_size);
+      ap_delay (self->delay);
+      process_reverse(self, buf);
+    }
+  }
+  while (buf);
 
   GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
 
   return GST_FLOW_OK;
+}
+
+GstBuffer*
+gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, guint * delay)
+{
+  GstBuffer* buffer;
+  
+  GST_WEBRTC_AUDIO_PROBE_LOCK (self);
+  
+  if (gst_adapter_available (self->adapter) < self->period_size)
+    buffer = NULL;
+  else
+  {
+    buffer = gst_adapter_take_buffer (self->adapter, self->period_size);;
+    * delay = self->delay;
+  }
+
+  GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
+
+  return buffer;
 }
 
 static void
@@ -199,10 +225,6 @@ gst_webrtc_audio_probe_set_property (GObject * object,
 
   GST_OBJECT_LOCK (self);
   switch (prop_id) {
-    case PROP_EXPLICIT_LATENCY:
-      self->explicit_latency =
-          g_value_get_int (value);
-      break;
     case PROP_EXPLICIT_DELAY:
       self->explicit_delay =
           g_value_get_int (value);
@@ -222,9 +244,6 @@ gst_webrtc_audio_probe_get_property (GObject * object,
 
   GST_OBJECT_LOCK (self);
   switch (prop_id) {
-    case PROP_EXPLICIT_LATENCY:
-      g_value_set_int (value, self->explicit_latency);
-      break;
     case PROP_EXPLICIT_DELAY:
       g_value_set_int (value, self->explicit_delay);
       break;
@@ -240,10 +259,6 @@ gst_webrtc_audio_probe_finalize (GObject * object)
 {
   GstWebrtcAudioProbe *self = GST_WEBRTC_AUDIO_PROBE (object);
 
-  G_LOCK (gst_aec_probes);
-  gst_aec_probes = g_list_remove (gst_aec_probes, self);
-  G_UNLOCK (gst_aec_probes);
-
   gst_object_unref (self->adapter);
   self->adapter = NULL;
 
@@ -257,12 +272,7 @@ gst_webrtc_audio_probe_init (GstWebrtcAudioProbe * self)
   gst_audio_info_init (&self->info);
   g_mutex_init (&self->lock);
 
-  self->latency = (self->explicit_latency != -1) ? self->explicit_latency * 1000000 : 0;
   self->delay = (self->explicit_delay != -1) ? self->explicit_delay : 0;
-
-  G_LOCK (gst_aec_probes);
-  gst_aec_probes = g_list_prepend (gst_aec_probes, self);
-  G_UNLOCK (gst_aec_probes);
 }
 
 static void
@@ -288,13 +298,6 @@ gst_webrtc_audio_probe_class_init (GstWebrtcAudioProbeClass * klass)
   gst_element_class_add_static_pad_template (element_class, &gst_webrtc_audio_probe_sink_template);
 
   g_object_class_install_property (gobject_class,
-      PROP_EXPLICIT_LATENCY,
-      g_param_spec_int ("latency", "Explicit Latency",
-          "Explicit latency in ms.",
-          -1, 1500, DEFAULT_EXPLICIT_LATENCY, (GParamFlags) (G_PARAM_READWRITE |
-              G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
-
-  g_object_class_install_property (gobject_class,
       PROP_EXPLICIT_DELAY,
       g_param_spec_int ("delay", "Explicit Delay",
           "Explicit delay between far end and near end in ms.",
@@ -306,106 +309,4 @@ gst_webrtc_audio_probe_class_init (GstWebrtcAudioProbeClass * klass)
       "Generic/Audio",
       "Gathers playback buffers for webrtcaudioprocessor",
       "Nicolas Dufresne <nicolas.dufrsesne@collabora.com>");
-}
-
-GstWebrtcAudioProbe *
-gst_webrtc_acquire_audio_probe (const gchar * name)
-{
-  GstWebrtcAudioProbe *ret = NULL;
-  GList *l;
-
-  G_LOCK (gst_aec_probes);
-  for (l = gst_aec_probes; l; l = l->next) {
-    GstWebrtcAudioProbe *probe = GST_WEBRTC_AUDIO_PROBE (l->data);
-
-    GST_WEBRTC_AUDIO_PROBE_LOCK (probe);
-    if (!probe->acquired && g_strcmp0 (GST_OBJECT_NAME (probe), name) == 0) {
-      probe->acquired = TRUE;
-      ret = GST_WEBRTC_AUDIO_PROBE (gst_object_ref (probe));
-      GST_WEBRTC_AUDIO_PROBE_UNLOCK (probe);
-      break;
-    }
-    GST_WEBRTC_AUDIO_PROBE_UNLOCK (probe);
-  }
-  G_UNLOCK (gst_aec_probes);
-
-  return ret;
-}
-
-void
-gst_webrtc_release_audio_probe (GstWebrtcAudioProbe * probe)
-{
-  GST_WEBRTC_AUDIO_PROBE_LOCK (probe);
-  probe->acquired = FALSE;
-  GST_WEBRTC_AUDIO_PROBE_UNLOCK (probe);
-  gst_object_unref (probe);
-}
-
-gint
-gst_webrtc_audio_probe_read (GstWebrtcAudioProbe * self, GstClockTime rec_time, gint * rate, int16_t * data)
-{
-  GstClockTimeDiff diff;
-  gsize avail, skip, offset, size;
-  gint delay = -1;
-
-  GST_WEBRTC_AUDIO_PROBE_LOCK (self);
-
-  if (!GST_CLOCK_TIME_IS_VALID (self->latency) ||
-      !GST_AUDIO_INFO_IS_VALID (&self->info))
-    goto done;
-
-  avail = gst_adapter_available (self->adapter) / self->info.bpf;
-
-  if (avail == 0) {
-    diff = G_MAXINT64;
-  } else {
-    GstClockTime play_time;
-    guint64 distance;
-
-    play_time = gst_adapter_prev_pts (self->adapter, &distance);
-    distance /= self->info.bpf;
-
-    if (GST_CLOCK_TIME_IS_VALID (play_time)) {
-      play_time += gst_util_uint64_scale_int (distance, GST_SECOND, self->info.rate);
-      play_time += self->latency;
-
-      diff = GST_CLOCK_DIFF (rec_time, play_time) / GST_MSECOND;
-    } else {
-      /* We have no timestamp, assume perfect delay */
-      diff = self->delay;
-    }
-  }
-
-  if (diff > self->delay) {
-    skip = (diff - self->delay) * self->info.rate / 1000;
-    skip = MIN (self->period_samples, skip);
-    offset = 0;
-  } else {
-    skip = 0;
-    offset = (self->delay - diff) * self->info.rate / 1000;
-    offset = MIN (avail, offset);
-  }
-
-  size = MIN (avail - offset, self->period_samples - skip);
-
-  skip *= self->info.bpf;
-  offset *= self->info.bpf;
-  size *= self->info.bpf;
-
-  if (size < self->period_size)
-    memset (data, 0, self->period_size);
-
-  if (size) {
-    gst_adapter_copy (self->adapter, (guint8 *) data + skip, offset, size);
-    gst_adapter_flush (self->adapter, offset + size);
-  }
-    
-  *rate = self->info.rate;
-
-  delay = self->delay;
-
-done:
-  GST_WEBRTC_AUDIO_PROBE_UNLOCK (self);
-
-  return delay;
 }

@@ -36,14 +36,6 @@
  * that are played to loud speakers. For this, you must place a webrtcaudioprobe
  * element at that far end. Note that the sample rate must match between
  * webrtcaudioprocessor and the webrtaudioprobe. Though, the number of channels can differ.
- * The probe is found by the processor element using it's object name. By default,
- * webrtcaudioprocessor looks for webrtcaudioprobe0, which means it just work if you have
- * a single probe and the processor.
- *
- * The probe can only be used within the same top level GstPipeline.
- * Additionally, to simplify the code, the probe element must be created
- * before the processor sink pad is activated. It does not need to be in any
- * particular state and does not even need to be added to the pipeline yet.
  *
  * # Example launch line
  *
@@ -70,7 +62,6 @@
 #endif
 
 #include <stdbool.h>
-#include <stdio.h>
 
 #include "gst/webrtcaudioprocessing/gstwebrtcaudioprocessor.h"
 #include "gst/webrtcaudioprocessing/gstwebrtcaudioprobe.h"
@@ -92,25 +83,18 @@
 #define LS_WARNING 2
 #define LS_INFO 3
 #define LS_VERBOSE 4
-extern "C" SHARED_PUBLIC int  ap_setup(int, bool, bool, int, int);
+extern "C" SHARED_PUBLIC const char* ap_error(int);
+extern "C" SHARED_PUBLIC void ap_setup(int, bool, bool, int, int);
 extern "C" SHARED_PUBLIC void ap_delete();
 extern "C" SHARED_PUBLIC void ap_delay(int);
-extern "C" SHARED_PUBLIC int  ap_process_reverse(int, int, int16_t*);
-extern "C" SHARED_PUBLIC int  ap_process(int, int, int16_t*);
+extern "C" SHARED_PUBLIC int ap_process_reverse(int, int, int16_t*);
+extern "C" SHARED_PUBLIC int ap_process(int, int, int16_t*);
 
 GST_DEBUG_CATEGORY (webrtc_audio_processor_debug);
 #define GST_CAT_DEFAULT (webrtc_audio_processor_debug)
 
 #define DEFAULT_PROCESSING_RATE 32000
-#define DEFAULT_TARGET_LEVEL_DBFS 3
-#define DEFAULT_COMPRESSION_GAIN_DB 9
-#define DEFAULT_STARTUP_MIN_VOLUME 12
-#define DEFAULT_LIMITER FALSE
-#ifdef _WAIT
-#define DEFAULT_GAIN_CONTROL_MODE webrtc::AudioProcessing::Config::GainController1::kAdaptiveDigital
-#endif
 #define DEFAULT_VOICE_DETECTION FALSE
-#define DEFAULT_VOICE_DETECTION_FRAME_SIZE_MS 10
 
 static GstStaticPadTemplate gst_webrtc_audio_processor_sink_template =
 GST_STATIC_PAD_TEMPLATE ("sink",
@@ -179,47 +163,18 @@ gst_webrtc_noise_suppression_level_get_type (void)
   return suppression_level_type;
 }
 
-#ifdef _WAIT
-typedef webrtc::AudioProcessing::Config::GainController1::Mode GstWebrtcAudioProcessingGainControlMode;
-#define GST_TYPE_WEBRTC_GAIN_CONTROL_MODE \
-    (gst_webrtc_gain_control_mode_get_type ())
-static GType
-gst_webrtc_gain_control_mode_get_type (void)
-{
-  static GType gain_control_mode_type = 0;
-  static const GEnumValue mode_types[] = {
-    {webrtc::AudioProcessing::Config::GainController1::kAdaptiveDigital, "Adaptive Digital", "adaptive-digital"},
-    {webrtc::AudioProcessing::Config::GainController1::kFixedDigital, "Fixed Digital", "fixed-digital"},
-    {0, NULL, NULL}
-  };
-
-  if (!gain_control_mode_type) {
-    gain_control_mode_type =
-        g_enum_register_static ("GstWebrtcAudioProcessingGainControlMode", mode_types);
-  }
-  return gain_control_mode_type;
-}
-#endif
-
 enum
 {
   PROP_0,
-  PROP_PROBE,
   PROP_LOGGING_SEVERITY,
   PROP_PROCESSING_RATE,
-  PROP_HIGH_PASS_FILTER,
   PROP_ECHO_CANCEL,
   PROP_NOISE_SUPPRESSION,
   PROP_NOISE_SUPPRESSION_LEVEL,
-  PROP_GAIN_CONTROL,
-  PROP_TARGET_LEVEL_DBFS,
-  PROP_COMPRESSION_GAIN_DB,
-  PROP_STARTUP_MIN_VOLUME,
-  PROP_LIMITER,
-  PROP_GAIN_CONTROL_MODE,
   PROP_VOICE_DETECTION,
-  PROP_VOICE_DETECTION_FRAME_SIZE_MS,
 };
+
+GMutex webrtcaudioprocessing_mutex;
 
 /**
  * GstWebrtcAudioProcessor:
@@ -239,162 +194,18 @@ struct _GstWebrtcAudioProcessor
   /* Protected by the stream lock */
   GstAdapter *adapter;
 
-  /* Protected by the object lock */
-  gchar *probe_name;
-  GstWebrtcAudioProbe *probe;
-
   /* Properties */
   int logging_severity;
   int processing_rate;
-  gboolean high_pass_filter;
   gboolean echo_cancel;
   gboolean noise_suppression;
   int noise_suppression_level;
-  gboolean gain_control;
-  gint target_level_dbfs;
-  gint compression_gain_db;
-  gint startup_min_volume;
-  gboolean limiter;
-#ifdef _WAIT
-  webrtc::AudioProcessing::Config::GainController1::Mode gain_control_mode;
-#endif
   gboolean voice_detection;
-  gint voice_detection_frame_size_ms;
 };
 
 G_DEFINE_TYPE (GstWebrtcAudioProcessor, gst_webrtc_audio_processor, GST_TYPE_AUDIO_FILTER);
 
-static const gchar *
-webrtc_error_to_string (gint err)
-{
-#ifdef _WAIT
-  const gchar *str = "unknown error";
-
-  switch (err) {
-    case webrtc::AudioProcessing::kNoError:
-      str = "success";
-      break;
-    case webrtc::AudioProcessing::kUnspecifiedError:
-      str = "unspecified error";
-      break;
-    case webrtc::AudioProcessing::kCreationFailedError:
-      str = "creating failed";
-      break;
-    case webrtc::AudioProcessing::kUnsupportedComponentError:
-      str = "unsupported component";
-      break;
-    case webrtc::AudioProcessing::kUnsupportedFunctionError:
-      str = "unsupported function";
-      break;
-    case webrtc::AudioProcessing::kNullPointerError:
-      str = "null pointer";
-      break;
-    case webrtc::AudioProcessing::kBadParameterError:
-      str = "bad parameter";
-      break;
-    case webrtc::AudioProcessing::kBadSampleRateError:
-      str = "bad sample rate";
-      break;
-    case webrtc::AudioProcessing::kBadDataLengthError:
-      str = "bad data length";
-      break;
-    case webrtc::AudioProcessing::kBadNumberChannelsError:
-      str = "bad number of channels";
-      break;
-    case webrtc::AudioProcessing::kFileError:
-      str = "file IO error";
-      break;
-    case webrtc::AudioProcessing::kStreamParameterNotSetError:
-      str = "stream parameter not set";
-      break;
-    case webrtc::AudioProcessing::kNotEnabledError:
-      str = "not enabled";
-      break;
-    case webrtc::AudioProcessing::kBadStreamParameterWarning:
-      str = "bad stream parameter warning";
-      break;
-    default:
-      break;
-  }
-
-  return str;
-#else
-  return "ap_error";
-#endif
-}
-
-static GstBuffer *
-gst_webrtc_audio_processor_take_buffer (GstWebrtcAudioProcessor * self)
-{
-  GstBuffer *buffer;
-  GstClockTime timestamp;
-  guint64 distance;
-  gboolean at_discont;
-
-  timestamp = gst_adapter_prev_pts (self->adapter, &distance);
-  distance /= self->info.bpf;
-
-  timestamp += gst_util_uint64_scale_int (distance, GST_SECOND, self->info.rate);
-
-  buffer = gst_adapter_take_buffer (self->adapter, self->period_size);
-  at_discont = (gst_adapter_pts_at_discont (self->adapter) == timestamp);
-
-  GST_BUFFER_PTS (buffer) = timestamp;
-  GST_BUFFER_DURATION (buffer) = 10 * GST_MSECOND;
-
-  if (at_discont && distance == 0) {
-    GST_BUFFER_FLAG_SET (buffer, GST_BUFFER_FLAG_DISCONT);
-  } else {
-    GST_BUFFER_FLAG_UNSET (buffer, GST_BUFFER_FLAG_DISCONT);
-  }
-
-  return buffer;
-}
-
-static GstFlowReturn
-gst_webrtc_audio_processor_analyze_reverse_stream (GstWebrtcAudioProcessor * self,
-    GstClockTime rec_time)
-{
-  GstWebrtcAudioProbe *probe = NULL;
-  int16_t data[kMaxDataSizeSamples];
-  GstFlowReturn ret = GST_FLOW_OK;
-  gint probe_rate;
-  gint err, delay;
-
-  GST_OBJECT_LOCK (self);
-  if (self->echo_cancel)
-    probe = GST_WEBRTC_AUDIO_PROBE (g_object_ref (self->probe));
-  GST_OBJECT_UNLOCK (self);
-
-  /* If echo cancellation is disabled */
-  if (!probe)
-    return GST_FLOW_OK;
-
-  delay = gst_webrtc_audio_probe_read (probe, rec_time, &probe_rate, data);
-// try not calling as we are not really passing anything meaningfull
-// ap_delay(delay);
-
-  if (probe_rate != self->info.rate) {
-    GST_ELEMENT_ERROR (self, STREAM, FORMAT,
-        ("Audio probe has rate %i , while the processor is running at rate %i,"
-         " use a caps filter to ensure those are the same.",
-         probe_rate, self->info.rate), (NULL));
-    ret = GST_FLOW_ERROR;
-    goto done;
-  }
-
-  err = ap_process_reverse(self->info.rate, self->info.channels, data);
-  if (err < 0)
-    GST_WARNING_OBJECT (self, "Reverse stream analyses failed: %s.",
-        webrtc_error_to_string (err));
-
-done:
-  gst_object_unref (probe);
-
-  return ret;
-}
-
-/* CONVERT
+#ifdef _CONVERT
 static void
 gst_webrtc_vad_post_message (GstWebrtcAudioProcessor *self, GstClockTime timestamp,
     gboolean stream_has_voice)
@@ -416,7 +227,7 @@ gst_webrtc_vad_post_message (GstWebrtcAudioProcessor *self, GstClockTime timesta
   gst_element_post_message (GST_ELEMENT (self),
       gst_message_new_element (GST_OBJECT (self), s));
 }
-*/
+#endif
 
 static GstFlowReturn
 gst_webrtc_audio_processor_process_stream (GstWebrtcAudioProcessor * self,
@@ -436,10 +247,10 @@ gst_webrtc_audio_processor_process_stream (GstWebrtcAudioProcessor * self,
   err = ap_process(self->info.rate, self->info.channels, data);
 
   if (err < 0) {
-    GST_WARNING_OBJECT (self, "Failed to filter the audio: %s.",
-        webrtc_error_to_string (err));
+    GST_WARNING_OBJECT (self, "Failed to process audio: %s.",
+        ap_error (err));
   } else {
-  /* CONVERT
+#ifdef _CONVERT
     if (self->voice_detection) {
       gboolean stream_has_voice = apm->voice_detection ()->stream_has_voice ();
 
@@ -448,7 +259,7 @@ gst_webrtc_audio_processor_process_stream (GstWebrtcAudioProcessor * self,
 
       self->stream_has_voice = stream_has_voice;
     }
-    */
+#endif
   }
 
   gst_audio_buffer_unmap (&abuf);
@@ -463,8 +274,6 @@ gst_webrtc_audio_processor_submit_input_buffer (GstBaseTransform * btrans,
   GstWebrtcAudioProcessor *self = GST_WEBRTC_AUDIO_PROCESSOR (btrans);
 
   buffer = gst_buffer_make_writable (buffer);
-  GST_BUFFER_PTS (buffer) = gst_segment_to_running_time (&btrans->segment,
-      GST_FORMAT_TIME, GST_BUFFER_PTS (buffer));
 
   if (is_discont) {
     GST_DEBUG_OBJECT (self,
@@ -491,118 +300,28 @@ gst_webrtc_audio_processor_generate_output (GstBaseTransform * btrans, GstBuffer
     return GST_FLOW_OK;
   }
 
-  *outbuf = gst_webrtc_audio_processor_take_buffer (self);
-  ret = gst_webrtc_audio_processor_analyze_reverse_stream (self, GST_BUFFER_PTS (*outbuf));
-
-  if (ret == GST_FLOW_OK)
-    ret = gst_webrtc_audio_processor_process_stream (self, *outbuf);
+  *outbuf = gst_adapter_take_buffer (self->adapter, self->period_size);
+  ret = gst_webrtc_audio_processor_process_stream (self, *outbuf);
 
   return ret;
-}
-
-extern
-void gst_webrtc_audio_processor_set_probe ()
-{
-  // printf("SET PROBE\n");
 }
 
 static gboolean
 gst_webrtc_audio_processor_start (GstBaseTransform * btrans)
 {
   GstWebrtcAudioProcessor *self = GST_WEBRTC_AUDIO_PROCESSOR (btrans);
-#ifdef _WAIT
-  webrtc::AudioProcessing::Config config;
-  gint err = 0;
-  
+
   GST_OBJECT_LOCK (self);
-  
-  GST_DEBUG_OBJECT (self, "Setting processing rate to %d",
-        self->processing_rate);
-  config.pipeline.maximum_internal_processing_rate = self->processing_rate;
-  
-  rtc::LogMessage::LogToDebug(self->logging_severity);
-
-  if (self->high_pass_filter) {
-    GST_DEBUG_OBJECT (self, "Enabling High Pass filter");
-    config.high_pass_filter.enabled = true;
-  }
-
-  if (self->echo_cancel) {
-    GST_DEBUG_OBJECT (self, "Enabling Echo Cancellation");
-    config.echo_canceller.enabled = true;
-    config.echo_canceller.mobile_mode = false;
-  }
-
-  if (self->noise_suppression) {
-    GST_DEBUG_OBJECT (self, "Enabling Noise Suppression");
-    config.noise_suppression.enabled = true;
-    config.noise_suppression.level = self->noise_suppression_level;
-  }
-  
-  if (self->gain_control) {
-    GEnumClass *mode_class = (GEnumClass *)
-        g_type_class_ref (GST_TYPE_WEBRTC_GAIN_CONTROL_MODE);
-
-    GST_DEBUG_OBJECT (self, "Enabling Digital Gain Control, target level "
-        "dBFS %d, compression gain dB %d, limiter %senabled, mode: %s",
-        self->target_level_dbfs, self->compression_gain_db,
-        self->limiter ? "" : "NOT ",
-        g_enum_get_value (mode_class, self->gain_control_mode)->value_name);
-
-    g_type_class_unref (mode_class);
-
-    // apm->gain_control ()->set_mode (self->gain_control_mode);
-    // apm->gain_control ()->set_target_level_dbfs (self->target_level_dbfs);
-    // apm->gain_control ()->set_compression_gain_db (self->compression_gain_db);
-    // apm->gain_control ()->enable_limiter (self->limiter);
-    config.gain_controller1.enabled = true;
-  }
-
-  self->apm = webrtc::AudioProcessingBuilder().Create();
-
-  self->apm->ApplyConfig(config);
-  
-  err = self->apm->Initialize();
-#else
-  gint err = 0;
-  GST_OBJECT_LOCK (self);
-  err = ap_setup(self->processing_rate, self->echo_cancel, self->noise_suppression, self->noise_suppression_level, self->logging_severity);
-#endif
-
-  if (err < 0)
-    goto initialize_failed;
-  
-  if (self->echo_cancel) {
-    self->probe = gst_webrtc_acquire_audio_probe (self->probe_name);
-
-    if (self->probe == NULL) {
-      GST_OBJECT_UNLOCK (self);
-      GST_ELEMENT_ERROR (self, RESOURCE, NOT_FOUND,
-          ("No audio probe with name %s found.", self->probe_name), (NULL));
-      return FALSE;
-    }
-  }
-
+  ap_setup(self->processing_rate, self->echo_cancel, self->noise_suppression, self->noise_suppression_level, self->logging_severity);
   GST_OBJECT_UNLOCK (self);
 
   return TRUE;
-  
-initialize_failed:
-  GST_OBJECT_UNLOCK (self);
-#ifdef _WAIT
-  GST_ELEMENT_ERROR (self, LIBRARY, INIT,
-      ("Failed to initialize WebRTC Audio Processing library"),
-      ("webrtc::AudioProcessing::Initialize() failed: %s",
-          webrtc_error_to_string (err)));
-#endif
-  return FALSE;
 }
 
 static gboolean
 gst_webrtc_audio_processor_setup (GstAudioFilter * filter, const GstAudioInfo * info)
 {
   GstWebrtcAudioProcessor *self = GST_WEBRTC_AUDIO_PROCESSOR (filter);
-  GstAudioInfo probe_info = *info;
 
   GST_LOG_OBJECT (self, "setting format to %s with %i Hz and %i channels",
       info->finfo->description, info->rate, info->channels);
@@ -613,26 +332,9 @@ gst_webrtc_audio_processor_setup (GstAudioFilter * filter, const GstAudioInfo * 
 
   self->info = *info;
 
-  /* WebRTC library works with 10ms buffers, compute once this size */
+  /* WebRTC works with 10ms (.01s) buffers, compute period_size once */
   self->period_samples = info->rate / 100;
   self->period_size = self->period_samples * info->bpf;
-
-#ifdef _WAIT
-  if ((kMaxDataSizeSamples * 2) < self->period_size)
-    goto period_too_big;
-#endif
-
-  if (self->probe) {
-    GST_WEBRTC_AUDIO_PROBE_LOCK (self->probe);
-
-    if (self->probe->info.rate != 0) {
-      if (self->probe->info.rate != info->rate)
-        goto probe_has_wrong_rate;
-      probe_info = self->probe->info;
-    }
-
-    GST_WEBRTC_AUDIO_PROBE_UNLOCK (self->probe);
-  }
 
 #ifdef _WAIT
   /* input stream */
@@ -649,43 +351,17 @@ gst_webrtc_audio_processor_setup (GstAudioFilter * filter, const GstAudioInfo * 
       webrtc::StreamConfig (probe_info.rate, probe_info.channels, false);
 #endif
 
-  /* CONVERT
+#ifdef _CONVERT
   if (self->voice_detection) {
-    GST_DEBUG_OBJECT (self, "Enabling Voice Activity Detection, frame size "
-      "%d milliseconds", self->voice_detection_frame_size_ms);
-
     self->stream_has_voice = FALSE;
 
     apm->voice_detection ()->Enable (true);
-    apm->voice_detection ()->set_frame_size_ms (
-        self->voice_detection_frame_size_ms);
   }
-  */
+#endif
 
   GST_OBJECT_UNLOCK (self);
 
   return TRUE;
-
-#ifdef _WAIT
-period_too_big:
-#endif
-  GST_OBJECT_UNLOCK (self);
-#ifdef _WAIT
-  GST_WARNING_OBJECT (self, "webrtcaudioprocessor format produce too big period "
-      "(maximum is %" G_GSIZE_FORMAT " samples and we have %u samples), "
-      "reduce the number of channels or the rate.",
-      kMaxDataSizeSamples, self->period_size / 2);
-#endif
-  return FALSE;
-
-probe_has_wrong_rate:
-  GST_WEBRTC_AUDIO_PROBE_UNLOCK (self->probe);
-  GST_OBJECT_UNLOCK (self);
-  GST_ELEMENT_ERROR (self, STREAM, FORMAT,
-      ("Audio probe has rate %i , while the processor is running at rate %i,"
-          " use a caps filter to ensure those are the same.",
-          probe_info.rate, info->rate), (NULL));
-  return FALSE;
 }
 
 static gboolean
@@ -696,11 +372,6 @@ gst_webrtc_audio_processor_stop (GstBaseTransform * btrans)
   GST_OBJECT_LOCK (self);
 
   gst_adapter_clear (self->adapter);
-
-  if (self->probe) {
-    gst_webrtc_release_audio_probe (self->probe);
-    self->probe = NULL;
-  }
 
   ap_delete();
 
@@ -717,19 +388,12 @@ gst_webrtc_audio_processor_set_property (GObject * object,
 
   GST_OBJECT_LOCK (self);
   switch (prop_id) {
-    case PROP_PROBE:
-      g_free (self->probe_name);
-      self->probe_name = g_value_dup_string (value);
-      break;
     case PROP_LOGGING_SEVERITY:
       self->logging_severity =
           (GstWebrtcAudioProcessingLoggingSeverity) g_value_get_enum (value);
       break;
     case PROP_PROCESSING_RATE:
       self->processing_rate = g_value_get_int (value);
-      break;
-    case PROP_HIGH_PASS_FILTER:
-      self->high_pass_filter = g_value_get_boolean (value);
       break;
     case PROP_ECHO_CANCEL:
       self->echo_cancel = g_value_get_boolean (value);
@@ -741,32 +405,8 @@ gst_webrtc_audio_processor_set_property (GObject * object,
       self->noise_suppression_level =
           (GstWebrtcAudioProcessingNoiseSuppressionLevel) g_value_get_enum (value);
       break;
-    case PROP_GAIN_CONTROL:
-      self->gain_control = g_value_get_boolean (value);
-      break;
-    case PROP_TARGET_LEVEL_DBFS:
-      self->target_level_dbfs = g_value_get_int (value);
-      break;
-    case PROP_COMPRESSION_GAIN_DB:
-      self->compression_gain_db = g_value_get_int (value);
-      break;
-    case PROP_STARTUP_MIN_VOLUME:
-      self->startup_min_volume = g_value_get_int (value);
-      break;
-    case PROP_LIMITER:
-      self->limiter = g_value_get_boolean (value);
-      break;
-#ifdef _WAIT
-    case PROP_GAIN_CONTROL_MODE:
-      self->gain_control_mode =
-          (GstWebrtcAudioProcessingGainControlMode) g_value_get_enum (value);
-      break;
-#endif
     case PROP_VOICE_DETECTION:
       self->voice_detection = g_value_get_boolean (value);
-      break;
-    case PROP_VOICE_DETECTION_FRAME_SIZE_MS:
-      self->voice_detection_frame_size_ms = g_value_get_int (value);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -783,17 +423,11 @@ gst_webrtc_audio_processor_get_property (GObject * object,
 
   GST_OBJECT_LOCK (self);
   switch (prop_id) {
-    case PROP_PROBE:
-      g_value_set_string (value, self->probe_name);
-      break;
     case PROP_LOGGING_SEVERITY:
       g_value_set_enum (value, self->logging_severity);
       break;
     case PROP_PROCESSING_RATE:
       g_value_set_int (value, self->processing_rate);
-      break;
-    case PROP_HIGH_PASS_FILTER:
-      g_value_set_boolean (value, self->high_pass_filter);
       break;
     case PROP_ECHO_CANCEL:
       g_value_set_boolean (value, self->echo_cancel);
@@ -804,31 +438,8 @@ gst_webrtc_audio_processor_get_property (GObject * object,
     case PROP_NOISE_SUPPRESSION_LEVEL:
       g_value_set_enum (value, self->noise_suppression_level);
       break;
-    case PROP_GAIN_CONTROL:
-      g_value_set_boolean (value, self->gain_control);
-      break;
-    case PROP_TARGET_LEVEL_DBFS:
-      g_value_set_int (value, self->target_level_dbfs);
-      break;
-    case PROP_COMPRESSION_GAIN_DB:
-      g_value_set_int (value, self->compression_gain_db);
-      break;
-    case PROP_STARTUP_MIN_VOLUME:
-      g_value_set_int (value, self->startup_min_volume);
-      break;
-    case PROP_LIMITER:
-      g_value_set_boolean (value, self->limiter);
-      break;
-#ifdef _WAIT
-    case PROP_GAIN_CONTROL_MODE:
-      g_value_set_enum (value, self->gain_control_mode);
-      break;
-#endif
     case PROP_VOICE_DETECTION:
       g_value_set_boolean (value, self->voice_detection);
-      break;
-    case PROP_VOICE_DETECTION_FRAME_SIZE_MS:
-      g_value_set_int (value, self->voice_detection_frame_size_ms);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -844,7 +455,6 @@ gst_webrtc_audio_processor_finalize (GObject * object)
   GstWebrtcAudioProcessor *self = GST_WEBRTC_AUDIO_PROCESSOR (object);
 
   gst_object_unref (self->adapter);
-  g_free (self->probe_name);
 
   G_OBJECT_CLASS (gst_webrtc_audio_processor_parent_class)->finalize (object);
 }
@@ -889,15 +499,6 @@ gst_webrtc_audio_processor_class_init (GstWebrtcAudioProcessorClass * klass)
       "Nicolas Dufresne <nicolas.dufresne@collabora.com>");
 
   g_object_class_install_property (gobject_class,
-      PROP_PROBE,
-      g_param_spec_string ("probe", "Audio Probe",
-          "The name of the webrtcaudioprobe element that record the audio being "
-          "played through loud speakers. Must be set before PAUSED state.",
-          "webrtcaudioprobe0",
-          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-              G_PARAM_CONSTRUCT)));
-
-  g_object_class_install_property (gobject_class,
       PROP_LOGGING_SEVERITY,
       g_param_spec_enum ("logging-severity", "Logging Severity",
           "Controls the amount of logging.", GST_TYPE_WEBRTC_LOGGING_SEVERITY,
@@ -911,13 +512,6 @@ gst_webrtc_audio_processor_class_init (GstWebrtcAudioProcessorClass * klass)
           "Maximum processing rate. May only be set to 32000 or 48000.",
           32000, 48000, DEFAULT_PROCESSING_RATE, (GParamFlags) (G_PARAM_READWRITE |
               G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
-
-  g_object_class_install_property (gobject_class,
-      PROP_HIGH_PASS_FILTER,
-      g_param_spec_boolean ("high-pass-filter", "High Pass Filter",
-          "Enable or disable high pass filtering", FALSE,
-          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-              G_PARAM_CONSTRUCT)));
 
   g_object_class_install_property (gobject_class,
       PROP_ECHO_CANCEL,
@@ -944,70 +538,13 @@ gst_webrtc_audio_processor_class_init (GstWebrtcAudioProcessorClass * klass)
               G_PARAM_CONSTRUCT)));
 
   g_object_class_install_property (gobject_class,
-      PROP_GAIN_CONTROL,
-      g_param_spec_boolean ("gain-control", "Gain Control",
-          "Enable or disable automatic digital gain control",
-          FALSE, (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-              G_PARAM_CONSTRUCT)));
-
-  g_object_class_install_property (gobject_class,
-      PROP_TARGET_LEVEL_DBFS,
-      g_param_spec_int ("target-level-dbfs", "Target Level dBFS",
-          "Sets the target peak |level| (or envelope) of the gain control in "
-          "dBFS (decibels from digital full-scale).",
-          0, 31, DEFAULT_TARGET_LEVEL_DBFS, (GParamFlags) (G_PARAM_READWRITE |
-              G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
-
-  g_object_class_install_property (gobject_class,
-      PROP_COMPRESSION_GAIN_DB,
-      g_param_spec_int ("compression-gain-db", "Compression Gain dB",
-          "Sets the maximum |gain| the digital compression stage may apply, "
-					"in dB.",
-          0, 90, DEFAULT_COMPRESSION_GAIN_DB, (GParamFlags) (G_PARAM_READWRITE |
-              G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
-
-  g_object_class_install_property (gobject_class,
-      PROP_LIMITER,
-      g_param_spec_boolean ("limiter", "Limiter",
-          "When enabled, the compression stage will hard limit the signal to "
-          "the target level. Otherwise, the signal will be compressed but not "
-          "limited above the target level.",
-          DEFAULT_LIMITER, (GParamFlags) (G_PARAM_READWRITE |
-              G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
-
-#ifdef _WAIT
-  g_object_class_install_property (gobject_class,
-      PROP_GAIN_CONTROL_MODE,
-      g_param_spec_enum ("gain-control-mode", "Gain Control Mode",
-          "Controls the mode of the compression stage",
-          GST_TYPE_WEBRTC_GAIN_CONTROL_MODE,
-          DEFAULT_GAIN_CONTROL_MODE,
-          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-              G_PARAM_CONSTRUCT)));
-#endif
-
-  g_object_class_install_property (gobject_class,
       PROP_VOICE_DETECTION,
       g_param_spec_boolean ("voice-detection", "Voice Detection",
           "Enable or disable the voice activity detector",
           DEFAULT_VOICE_DETECTION, (GParamFlags) (G_PARAM_READWRITE |
               G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
 
-  g_object_class_install_property (gobject_class,
-      PROP_VOICE_DETECTION_FRAME_SIZE_MS,
-      g_param_spec_int ("voice-detection-frame-size-ms",
-          "Voice Detection Frame Size Milliseconds",
-          "Sets the |size| of the frames in ms on which the VAD will operate. "
-          "Larger frames will improve detection accuracy, but reduce the "
-          "frequency of updates",
-          10, 30, DEFAULT_VOICE_DETECTION_FRAME_SIZE_MS,
-          (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
-              G_PARAM_CONSTRUCT)));
-
-#ifdef _WAIT
-  gst_type_mark_as_plugin_api (GST_TYPE_WEBRTC_GAIN_CONTROL_MODE, (GstPluginAPIFlags) 0);
   gst_type_mark_as_plugin_api (GST_TYPE_WEBRTC_NOISE_SUPPRESSION_LEVEL, (GstPluginAPIFlags) 0);
-#endif
 }
 
 static gboolean
