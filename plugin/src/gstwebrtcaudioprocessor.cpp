@@ -78,11 +78,11 @@
 #define NSL_MODERATE 1
 #define NSL_HIGH 2
 #define NSL_VERYHIGH 3
-#define LS_NONE 0
-#define LS_ERROR 1
+#define LS_VERBOSE 0
+#define LS_INFO 1
 #define LS_WARNING 2
-#define LS_INFO 3
-#define LS_VERBOSE 4
+#define LS_ERROR 3
+#define LS_NONE 4
 extern "C" SHARED_PUBLIC const char* ap_error(int);
 extern "C" SHARED_PUBLIC void ap_setup(int, bool, bool, int, int);
 extern "C" SHARED_PUBLIC void ap_delete();
