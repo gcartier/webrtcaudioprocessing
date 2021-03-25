@@ -172,7 +172,9 @@ enum
   PROP_ECHO_CANCEL,
   PROP_NOISE_SUPPRESSION,
   PROP_NOISE_SUPPRESSION_LEVEL,
+#ifdef _WAIT_VAD
   PROP_VOICE_DETECTION,
+#endif
   PROP_GAIN_CONTROLLER,
 };
 
@@ -202,13 +204,15 @@ struct _GstWebrtcAudioProcessor
   gboolean echo_cancel;
   gboolean noise_suppression;
   int noise_suppression_level;
+#ifdef _WAIT_VAD
   gboolean voice_detection;
+#endif
   gboolean gain_controller;
 };
 
 G_DEFINE_TYPE (GstWebrtcAudioProcessor, gst_webrtc_audio_processor, GST_TYPE_AUDIO_FILTER);
 
-#ifdef _CONVERT
+#ifdef _WAIT_VAD
 static void
 gst_webrtc_vad_post_message (GstWebrtcAudioProcessor *self, GstClockTime timestamp,
     gboolean stream_has_voice)
@@ -253,7 +257,7 @@ gst_webrtc_audio_processor_process_stream (GstWebrtcAudioProcessor * self,
     GST_WARNING_OBJECT (self, "Failed to process audio: %s.",
         ap_error (err));
   } else {
-#ifdef _CONVERT
+#ifdef _WAIT_VAD
     if (self->voice_detection) {
       gboolean stream_has_voice = apm->voice_detection ()->stream_has_voice ();
 
@@ -354,7 +358,7 @@ gst_webrtc_audio_processor_setup (GstAudioFilter * filter, const GstAudioInfo * 
       webrtc::StreamConfig (probe_info.rate, probe_info.channels, false);
 #endif
 
-#ifdef _CONVERT
+#ifdef _WAIT_VAD
   if (self->voice_detection) {
     self->stream_has_voice = FALSE;
 
@@ -408,9 +412,11 @@ gst_webrtc_audio_processor_set_property (GObject * object,
       self->noise_suppression_level =
           (GstWebrtcAudioProcessingNoiseSuppressionLevel) g_value_get_enum (value);
       break;
+#ifdef _WAIT_VAD
     case PROP_VOICE_DETECTION:
       self->voice_detection = g_value_get_boolean (value);
       break;
+#endif
     case PROP_GAIN_CONTROLLER:
       self->gain_controller = g_value_get_boolean (value);
       break;
@@ -444,9 +450,11 @@ gst_webrtc_audio_processor_get_property (GObject * object,
     case PROP_NOISE_SUPPRESSION_LEVEL:
       g_value_set_enum (value, self->noise_suppression_level);
       break;
+#ifdef _WAIT_VAD
     case PROP_VOICE_DETECTION:
       g_value_set_boolean (value, self->voice_detection);
       break;
+#endif
     case PROP_GAIN_CONTROLLER:
       g_value_set_boolean (value, self->gain_controller);
       break;
@@ -546,12 +554,14 @@ gst_webrtc_audio_processor_class_init (GstWebrtcAudioProcessorClass * klass)
           (GParamFlags) (G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS |
               G_PARAM_CONSTRUCT)));
 
+#ifdef _WAIT_VAD
   g_object_class_install_property (gobject_class,
       PROP_VOICE_DETECTION,
       g_param_spec_boolean ("voice-detection", "Voice Detection",
           "Enable or disable the voice activity detector",
           DEFAULT_VOICE_DETECTION, (GParamFlags) (G_PARAM_READWRITE |
               G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
+#endif
 
   g_object_class_install_property (gobject_class,
       PROP_GAIN_CONTROLLER,
