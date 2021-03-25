@@ -513,7 +513,7 @@ gst_webrtc_audio_processor_class_init (GstWebrtcAudioProcessorClass * klass)
       "Voice Processor (AGC, AEC, filters, etc.)",
       "Generic/Audio",
       "Processes voice with WebRTC Audio Processing Library",
-      "Nicolas Dufresne <nicolas.dufresne@collabora.com>");
+      "Guillaume Cartier <gucartier@gmail.com>");
 
   g_object_class_install_property (gobject_class,
       PROP_LOGGING_SEVERITY,

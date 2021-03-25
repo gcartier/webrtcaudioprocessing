@@ -308,5 +308,5 @@ gst_webrtc_audio_probe_class_init (GstWebrtcAudioProbeClass * klass)
       "Audio probe",
       "Generic/Audio",
       "Gathers playback buffers for webrtcaudioprocessor",
-      "Nicolas Dufresne <nicolas.dufrsesne@collabora.com>");
+      "Guillaume Cartier <gucartier@gmail.com>");
 }
