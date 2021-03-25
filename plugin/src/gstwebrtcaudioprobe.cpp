@@ -44,7 +44,7 @@
 // should go in a webrtc.h
 #define kMaxDataSizeSamples 7680
 extern "C" SHARED_PUBLIC const char* ap_error(int);
-extern "C" SHARED_PUBLIC void ap_setup(int, bool, bool, int, int);
+extern "C" SHARED_PUBLIC void ap_setup(int, bool, bool, int, bool, int);
 extern "C" SHARED_PUBLIC void ap_delete();
 extern "C" SHARED_PUBLIC void ap_delay(int);
 extern "C" SHARED_PUBLIC int ap_process_reverse(int, int, int16_t*);

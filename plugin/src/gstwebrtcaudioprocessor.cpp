@@ -84,7 +84,7 @@
 #define LS_ERROR 3
 #define LS_NONE 4
 extern "C" SHARED_PUBLIC const char* ap_error(int);
-extern "C" SHARED_PUBLIC void ap_setup(int, bool, bool, int, int);
+extern "C" SHARED_PUBLIC void ap_setup(int, bool, bool, int, bool, int);
 extern "C" SHARED_PUBLIC void ap_delete();
 extern "C" SHARED_PUBLIC void ap_delay(int);
 extern "C" SHARED_PUBLIC int ap_process_reverse(int, int, int16_t*);
@@ -95,6 +95,7 @@ GST_DEBUG_CATEGORY (webrtc_audio_processor_debug);
 
 #define DEFAULT_PROCESSING_RATE 32000
 #define DEFAULT_VOICE_DETECTION FALSE
+#define DEFAULT_GAIN_CONTROLLER TRUE
 
 static GstStaticPadTemplate gst_webrtc_audio_processor_sink_template =
 GST_STATIC_PAD_TEMPLATE ("sink",
@@ -172,6 +173,7 @@ enum
   PROP_NOISE_SUPPRESSION,
   PROP_NOISE_SUPPRESSION_LEVEL,
   PROP_VOICE_DETECTION,
+  PROP_GAIN_CONTROLLER,
 };
 
 GMutex webrtcaudioprocessing_mutex;
@@ -201,6 +203,7 @@ struct _GstWebrtcAudioProcessor
   gboolean noise_suppression;
   int noise_suppression_level;
   gboolean voice_detection;
+  gboolean gain_controller;
 };
 
 G_DEFINE_TYPE (GstWebrtcAudioProcessor, gst_webrtc_audio_processor, GST_TYPE_AUDIO_FILTER);
@@ -312,7 +315,7 @@ gst_webrtc_audio_processor_start (GstBaseTransform * btrans)
   GstWebrtcAudioProcessor *self = GST_WEBRTC_AUDIO_PROCESSOR (btrans);
 
   GST_OBJECT_LOCK (self);
-  ap_setup(self->processing_rate, self->echo_cancel, self->noise_suppression, self->noise_suppression_level, self->logging_severity);
+  ap_setup(self->processing_rate, self->echo_cancel, self->noise_suppression, self->noise_suppression_level, self->gain_controller, self->logging_severity);
   GST_OBJECT_UNLOCK (self);
 
   return TRUE;
@@ -408,6 +411,9 @@ gst_webrtc_audio_processor_set_property (GObject * object,
     case PROP_VOICE_DETECTION:
       self->voice_detection = g_value_get_boolean (value);
       break;
+    case PROP_GAIN_CONTROLLER:
+      self->gain_controller = g_value_get_boolean (value);
+      break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
       break;
@@ -440,6 +446,9 @@ gst_webrtc_audio_processor_get_property (GObject * object,
       break;
     case PROP_VOICE_DETECTION:
       g_value_set_boolean (value, self->voice_detection);
+      break;
+    case PROP_GAIN_CONTROLLER:
+      g_value_set_boolean (value, self->gain_controller);
       break;
     default:
       G_OBJECT_WARN_INVALID_PROPERTY_ID (object, prop_id, pspec);
@@ -542,6 +551,13 @@ gst_webrtc_audio_processor_class_init (GstWebrtcAudioProcessorClass * klass)
       g_param_spec_boolean ("voice-detection", "Voice Detection",
           "Enable or disable the voice activity detector",
           DEFAULT_VOICE_DETECTION, (GParamFlags) (G_PARAM_READWRITE |
+              G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
+
+  g_object_class_install_property (gobject_class,
+      PROP_GAIN_CONTROLLER,
+      g_param_spec_boolean ("gain-controller", "Gain Controller",
+          "Enable or disable the gain controller",
+          DEFAULT_GAIN_CONTROLLER, (GParamFlags) (G_PARAM_READWRITE |
               G_PARAM_STATIC_STRINGS | G_PARAM_CONSTRUCT)));
 
   gst_type_mark_as_plugin_api (GST_TYPE_WEBRTC_NOISE_SUPPRESSION_LEVEL, (GstPluginAPIFlags) 0);
