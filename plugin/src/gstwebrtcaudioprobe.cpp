@@ -151,7 +151,7 @@ gst_webrtc_audio_probe_src_event (GstBaseTransform * btrans, GstEvent * event)
 static void process_reverse(GstWebrtcAudioProbe * self, GstBuffer* buffer)
 {
   GstAudioBuffer abuf;
-  gst_audio_buffer_map (&abuf, &self->info, buffer, (GstMapFlags) GST_MAP_READWRITE);
+  gst_audio_buffer_map (&abuf, &self->info, buffer, (GstMapFlags) GST_MAP_READ);
 
   int16_t * const data = (int16_t * const) abuf.planes[0];
   int err;
