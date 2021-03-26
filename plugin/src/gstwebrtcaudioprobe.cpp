@@ -173,6 +173,7 @@ gst_webrtc_audio_probe_transform_ip (GstBaseTransform * btrans,
 
   GST_WEBRTC_AUDIO_PROBE_LOCK (self);
 
+  gst_buffer_ref (buffer);
   gst_adapter_push (self->adapter, buffer);
 
   if (gst_adapter_available (self->adapter) > MAX_ADAPTER_SIZE)
@@ -188,6 +189,7 @@ gst_webrtc_audio_probe_transform_ip (GstBaseTransform * btrans,
       buf = gst_adapter_take_buffer (self->adapter, self->period_size);
       ap_delay (self->delay);
       process_reverse(self, buf);
+      gst_buffer_unref (buf);
     }
   }
   while (buf);
