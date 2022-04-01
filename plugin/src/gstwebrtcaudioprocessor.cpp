@@ -95,7 +95,7 @@ GST_DEBUG_CATEGORY (webrtc_audio_processor_debug);
 
 #define DEFAULT_PROCESSING_RATE 32000
 #define DEFAULT_VOICE_DETECTION FALSE
-#define DEFAULT_GAIN_CONTROLLER TRUE
+#define DEFAULT_GAIN_CONTROLLER FALSE
 
 static GstStaticPadTemplate gst_webrtc_audio_processor_sink_template =
 GST_STATIC_PAD_TEMPLATE ("sink",
