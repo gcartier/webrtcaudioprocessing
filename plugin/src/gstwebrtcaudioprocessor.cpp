@@ -93,7 +93,7 @@ extern "C" SHARED_PUBLIC int ap_process(int, int, int16_t*);
 GST_DEBUG_CATEGORY (webrtc_audio_processor_debug);
 #define GST_CAT_DEFAULT (webrtc_audio_processor_debug)
 
-#define DEFAULT_PROCESSING_RATE 32000
+#define DEFAULT_PROCESSING_RATE 48000
 #define DEFAULT_VOICE_DETECTION FALSE
 #define DEFAULT_GAIN_CONTROLLER FALSE
 
