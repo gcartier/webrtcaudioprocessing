@@ -1,0 +1,11 @@
+webrtcdir=/Users/cartier/Devel/gstreamer/webrtc-silicon
+builddir=${webrtcdir}/build
+
+lib=-L${builddir} -lwebrtc
+include=
+
+Name: webrtc
+Description: WebRTC library
+Version: 0.1
+Libs: ${lib}
+Cflags: ${include}
